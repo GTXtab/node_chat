@@ -6,6 +6,16 @@ const chatState = require('./state');
 const disconnectTimeouts = new Map();
 const activeUsers = new Set();
 
+const broadcastToAll = (eventPayload) => {
+  const data = JSON.stringify(eventPayload);
+
+  for (const clientWs of chatState.getAllClients().keys()) {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(data);
+    }
+  }
+};
+
 const broadcastToRoom = (roomId, eventPayload) => {
   const data = JSON.stringify(eventPayload);
 
@@ -144,6 +154,28 @@ const initSocketHandler = (wss) => {
                 },
               }),
             );
+
+            break;
+          }
+
+          case 'ROOM_RENAME': {
+            const { roomId, newName } = payload;
+            const cleanNewName = String(newName || '')
+              .trim()
+              .substring(0, 40);
+
+            if (!cleanNewName) {
+              break;
+            }
+
+            const updatedRoom = chatState.renameRoom(roomId, cleanNewName);
+
+            if (updatedRoom) {
+              broadcastToAll({
+                type: 'ROOM_RENAME_SUCCESS',
+                payload: { room: updatedRoom },
+              });
+            }
 
             break;
           }

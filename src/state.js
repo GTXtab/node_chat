@@ -53,6 +53,19 @@ class ChatState {
     return newRoom;
   }
 
+  renameRoom(roomId, newName) {
+    const cleanKey = roomId.trim().toLowerCase();
+    const room = this.rooms.get(cleanKey);
+
+    if (room && newName.trim()) {
+      room.name = newName.trim();
+
+      return room;
+    }
+
+    return null;
+  }
+
   deleteRoom(roomName) {
     const cleanKey = roomName.trim().toLowerCase();
 

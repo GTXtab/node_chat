@@ -2,7 +2,7 @@
 <html lang="uk">
   <head>
     <meta charset="UTF-8" />
-    <title>Private Multi-Session Chat</title>
+    <title>Private Multi-Session Chat with Rename (Fixed Flow)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script
       src="https://unpkg.com/react@18/umd/react.production.min.js"
@@ -51,8 +51,16 @@
         const [newRoomName, setNewRoomName] = useState('');
         const [searchRoomName, setSearchRoomName] = useState('');
 
+        const [editingRoomId, setEditingRoomId] = useState(null);
+        const [editNameInput, setEditNameInput] = useState('');
+
         const ws = useRef(null);
         const scrollRef = useRef(null);
+
+        const activeRoomIdRef = useRef(activeRoomId);
+        useEffect(() => {
+          activeRoomIdRef.current = activeRoomId;
+        }, [activeRoomId]);
 
         useEffect(() => {
           if (username && isAuth) {
@@ -65,15 +73,18 @@
 
           const protocol =
             window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          ws.current = new WebSocket(`${protocol}//${window.location.host}`);
+          const socketInstance = new WebSocket(
+            `${protocol}//${window.location.host}`,
+          );
+          ws.current = socketInstance;
 
-          ws.current.onopen = () => {
-            ws.current.send(
+          socketInstance.onopen = () => {
+            socketInstance.send(
               JSON.stringify({ type: 'USER_INIT', payload: { username } }),
             );
           };
 
-          ws.current.onmessage = (event) => {
+          socketInstance.onmessage = (event) => {
             try {
               const { type, payload } = JSON.parse(event.data);
               switch (type) {
@@ -84,6 +95,14 @@
                   });
                   setActiveRoomId(payload.room.id);
                   setMessages(payload.history);
+                  break;
+
+                case 'ROOM_RENAME_SUCCESS':
+                  setMyRooms((prev) =>
+                    prev.map((r) =>
+                      r.id === payload.room.id ? payload.room : r,
+                    ),
+                  );
                   break;
 
                 case 'MSG_RECEIVE':
@@ -101,7 +120,7 @@
                   setMyRooms((prev) =>
                     prev.filter((r) => r.id !== payload.deletedRoomId),
                   );
-                  if (activeRoomId === payload.deletedRoomId) {
+                  if (activeRoomIdRef.current === payload.deletedRoomId) {
                     setActiveRoomId('general');
                   }
                   break;
@@ -118,7 +137,9 @@
           };
 
           return () => {
-            if (ws.current) ws.current.close();
+            if (ws.current) {
+              ws.current.close();
+            }
           };
         }, [isAuth, username]);
 
@@ -130,9 +151,7 @@
           e.preventDefault();
           const trimmed = username.trim();
           if (!trimmed) return;
-
           localStorage.setItem('chat_username', trimmed);
-
           const newUrl =
             window.location.protocol +
             '//' +
@@ -141,7 +160,6 @@
             '?user=' +
             encodeURIComponent(trimmed);
           window.history.pushState({ path: newUrl }, '', newUrl);
-
           setIsAuth(true);
         };
 
@@ -153,7 +171,6 @@
             window.location.host +
             window.location.pathname;
           window.history.pushState({ path: cleanUrl }, '', cleanUrl);
-
           setUsername('');
           setIsAuth(false);
           setMyRooms([{ id: 'general', name: 'General Chat' }]);
@@ -204,6 +221,19 @@
               payload: { roomName: roomId },
             }),
           );
+        };
+
+        const handleRenameRoom = (roomId, e) => {
+          e.stopPropagation();
+          if (!editNameInput.trim() || !ws.current) return;
+          ws.current.send(
+            JSON.stringify({
+              type: 'ROOM_RENAME',
+              payload: { roomId, newName: editNameInput.trim() },
+            }),
+          );
+          setEditingRoomId(null);
+          setEditNameInput('');
         };
 
         const handleDeleteRoom = (roomId, e) => {
@@ -308,7 +338,6 @@
                     maxLength={30}
                     class="flex-1 px-3 py-1.5 text-sm rounded-xl bg-slate-800 border border-slate-700 text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
-                  <input type="submit" style={{ display: 'none' }} />
                   <button
                     type="submit"
                     class="bg-emerald-600 hover:bg-emerald-500 font-bold px-3 py-1.5 rounded-xl text-white text-sm cursor-pointer"
@@ -330,16 +359,51 @@
                   >
                     <div class="flex items-center gap-2 flex-1 truncate">
                       <span class="text-slate-600 font-mono">#</span>
-                      <span class="truncate">{room.name}</span>
+                      {editingRoomId === room.id ? (
+                        <input
+                          type="text"
+                          value={editNameInput}
+                          onChange={(e) => setEditNameInput(e.target.value)}
+                          onKeyDown={(e) =>
+                            e.key === 'Enter' && handleRenameRoom(room.id, e)
+                          }
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          class="bg-slate-700 text-white text-xs px-2 py-0.5 rounded focus:outline-none w-full max-w-[130px]"
+                        />
+                      ) : (
+                        <span class="truncate">{room.name}</span>
+                      )}
                     </div>
 
                     {room.id !== 'general' && (
-                      <button
-                        onClick={(e) => handleDeleteRoom(room.id, e)}
-                        class="opacity-0 group-hover:opacity-100 text-rose-400 hover:text-rose-300 text-xs transition-opacity ml-2"
-                      >
-                        ✕
-                      </button>
+                      <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 transition-opacity ml-2">
+                        {editingRoomId === room.id ? (
+                          <button
+                            onClick={(e) => handleRenameRoom(room.id, e)}
+                            class="text-emerald-400 font-bold text-xs hover:text-emerald-300"
+                          >
+                            ✓
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingRoomId(room.id);
+                              setEditNameInput(room.name);
+                            }}
+                            class="text-slate-400 hover:text-slate-200 text-xs"
+                          >
+                            ✎
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => handleDeleteRoom(room.id, e)}
+                          class="text-rose-400 hover:text-rose-300 text-xs"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
